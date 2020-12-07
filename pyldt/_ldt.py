@@ -319,7 +319,7 @@ class LDT:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("To use this feature you must install matplotlib")
+            raise ImportError("To use this feature matplotlib must be installed")
 
         fig, ax = plt.subplots(subplot_kw=dict(polar=True))
         if angles == "all":
