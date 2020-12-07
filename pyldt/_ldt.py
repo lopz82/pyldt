@@ -299,6 +299,10 @@ class LDT:
         return np.isnan(self.dist).all()
 
     @property
+    def as_matrix(self) -> np.ndarray:
+        return self.dist
+
+    @property
     def as_array(self) -> np.ndarray:
         return self.dist.flatten()
 
@@ -307,7 +311,7 @@ class LDT:
         try:
             import pandas as pd
         except ImportError:
-            raise ImportError("To use this feature you must install pandas")
+            raise ImportError("To use this feature pandas must be installed")
 
         return pd.DataFrame(self.dist, columns=self.c_planes, index=self.intensities)
 
