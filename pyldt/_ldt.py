@@ -1,7 +1,7 @@
 import hashlib
 import math
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, TypeVar
+from typing import List, Optional, Tuple, Union, TypeVar, Callable
 
 import numpy as np
 from scipy.interpolate import interp2d
@@ -34,6 +34,11 @@ def numerical_conversion(n: str) -> Union[int, float]:
         except ValueError:
             pass
     return res
+
+
+def convert(raw_data: List[str]) -> List[Union[int, float]]:
+    """Helper method to convert numerical strings in their appropriate type"""
+    return [numerical_conversion(value.strip()) for value in raw_data]
 
 
 # Default values for interpolation. Using a 1 unit step is slower but guarantee compatibility.
@@ -73,10 +78,10 @@ class LDT:
         *,
         path: Optional[str] = None,
         raw_data: Optional[str] = None,
-        c_planes_step_interpolation=DEFAULT_C_PLANES_STEP_INTERPOLATION,
-        intensities_step_interpolation=DEFAULT_INTENSITIES_STEP_INTERPOLATION,
-        num_c_planes=DEFAULT_NUM_C_PLANES,
-        precision=DEFAULT_PRECISION,
+        c_planes_step_interpolation: Optional[int] = DEFAULT_C_PLANES_STEP_INTERPOLATION,
+        intensities_step_interpolation: Optional[int] = DEFAULT_INTENSITIES_STEP_INTERPOLATION,
+        num_c_planes: Optional[int] = DEFAULT_NUM_C_PLANES,
+        precision: Optional[Callable] = DEFAULT_PRECISION,
     ) -> None:
         if path and raw_data:
             raise TypeError("Use a path or data argument")
@@ -94,6 +99,7 @@ class LDT:
         self.intensities = None
         self._original_dist = None
         self.dist = None
+        self.converted_data = None
         self._c_planes_step_interpolation = c_planes_step_interpolation
         self._intensities_step_interpolation = intensities_step_interpolation
         self._num_c_planes = num_c_planes
@@ -108,14 +114,42 @@ class LDT:
             self.fit()
 
     @classmethod
-    def from_file(cls, path: str) -> TypeLDT:
+    def from_file(
+        cls,
+        path: str,
+        *,
+        c_planes_step_interpolation: Optional[int] = DEFAULT_C_PLANES_STEP_INTERPOLATION,
+        intensities_step_interpolation: Optional[int] = DEFAULT_INTENSITIES_STEP_INTERPOLATION,
+        num_c_planes: Optional[int] = DEFAULT_NUM_C_PLANES,
+        precision: Optional[Callable] = DEFAULT_PRECISION,
+    ) -> TypeLDT:
         """Simple shortcut for creating a LDT instance from a file"""
-        return cls(path=path)
+        return cls(
+            path=path,
+            c_planes_step_interpolation=c_planes_step_interpolation,
+            intensities_step_interpolation=intensities_step_interpolation,
+            num_c_planes=num_c_planes,
+            precision=precision,
+        )
 
     @classmethod
-    def from_raw_data(cls, raw_data: str) -> TypeLDT:
+    def from_raw_data(
+        cls,
+        raw_data: str,
+        *,
+        c_planes_step_interpolation: Optional[int] = DEFAULT_C_PLANES_STEP_INTERPOLATION,
+        intensities_step_interpolation: Optional[int] = DEFAULT_INTENSITIES_STEP_INTERPOLATION,
+        num_c_planes: Optional[int] = DEFAULT_NUM_C_PLANES,
+        precision: Optional[Callable] = DEFAULT_PRECISION,
+    ) -> TypeLDT:
         """Simple shortcut for creating a LDT instance from raw data"""
-        return cls(raw_data=raw_data)
+        return cls(
+            raw_data=raw_data,
+            c_planes_step_interpolation=c_planes_step_interpolation,
+            intensities_step_interpolation=intensities_step_interpolation,
+            num_c_planes=num_c_planes,
+            precision=precision,
+        )
 
     def get_ldt_file(self, path: str) -> List[str]:
         """Opens and reads the LDT file. Cleans trailing whitespaces"""
@@ -132,10 +166,7 @@ class LDT:
             raise IOError(f"Error opening {path}")
 
     def __hash__(self):
-        return (
-            int(hashlib.sha256(self.raw_data.encode("utf-8")).hexdigest(), 16)
-            % 10 ** 10
-        )
+        return int(hashlib.sha256(self.raw_data.encode("utf-8")).hexdigest(), 16) % 10 ** 10
 
     def __eq__(self, other: TypeLDT) -> bool:
         return True if self.compare_to(other) == 100 else False
@@ -169,17 +200,11 @@ class LDT:
 
     def fit(self) -> None:
         """Performs all the necessary operations to calculate a 360° photometric data from the provided LDT file"""
-        self.converted_data = self.convert(self.clean_data)
+        self.converted_data = convert(self.clean_data)
         self.extract_photometric_data(self.converted_data)
         self.calculate_photometry()
         self._original_dist = np.copy(self.dist)
-        self.interpolate(
-            self._c_planes_step_interpolation, self._intensities_step_interpolation
-        )
-
-    def convert(self, raw_data: List[str]) -> List[Union[int, float]]:
-        """Helper method to convert numerical strings in their appropriate type"""
-        return [numerical_conversion(value.strip()) for value in raw_data]
+        self.interpolate(self._c_planes_step_interpolation, self._intensities_step_interpolation)
 
     def extract_data_from_rows(self, converted_data: List[str]) -> None:
         """Extracts data from the provided array and creates attributes according to ATTRIBUTE_LINE_MAP_LDT_FILE map.
@@ -208,18 +233,13 @@ class LDT:
 
     def extract_c_planes(self, converted_data: List[str]) -> None:
         self.c_planes = np.array(
-            converted_data[
-                LDT.START_LINE_PHOTO_DATA : LDT.START_LINE_PHOTO_DATA
-                + self.num_c_planes
-            ],
+            converted_data[LDT.START_LINE_PHOTO_DATA : LDT.START_LINE_PHOTO_DATA + self.num_c_planes],
         ).astype(self._precision)
 
     def extract_distribution(self, converted_data: List[str]) -> None:
-        self.dist = np.array(
-            converted_data[
-                LDT.START_LINE_PHOTO_DATA + self.num_c_planes + self.num_lum_int :
-            ]
-        ).astype(self._precision)
+        self.dist = np.array(converted_data[LDT.START_LINE_PHOTO_DATA + self.num_c_planes + self.num_lum_int :]).astype(
+            self._precision
+        )
         # Splitting according lum intensity measures number
         self.dist = np.array_split(self.dist, len(self.dist) / self.num_lum_int)
         self.dist = np.array(self.dist).astype(self._precision).T
@@ -311,68 +331,39 @@ class LDT:
 
         return pd.DataFrame(self.dist, columns=self.c_planes, index=self.intensities)
 
-    def plot(self, angles: Optional[str] = "all") -> None:  # pragma: no cover
+    def plot(self) -> None:  # pragma: no cover
         try:
             import matplotlib.pyplot as plt
         except ImportError:
             raise ImportError("To use this feature you must install matplotlib")
 
         fig, ax = plt.subplots(subplot_kw=dict(polar=True))
-        if angles == "all":
-            ax.plot(
-                [math.radians(x) for x in self.intensities],
-                self.dist[:, 0],
-                c="r",
-                linewidth=2,
-                label="C0-180",
-            )
-            ax.plot(
-                [math.radians(-x) for x in self.intensities],
-                self.dist[:, 180],
-                c="r",
-                linewidth=2,
-            )
-            ax.plot(
-                [math.radians(-x) for x in self.intensities],
-                self.dist[:, 90],
-                "b--",
-                linewidth=2,
-                label="C90-270",
-            )
-            ax.plot(
-                [math.radians(x) for x in self.intensities],
-                self.dist[:, 270],
-                "b--",
-                linewidth=2,
-            )
-        elif angles == "0-180":
-            ax.plot(
-                [math.radians(x) for x in self.intensities],
-                self.dist[:, 0],
-                "r",
-                linewidth=2,
-                label="C0-180",
-            )
-            ax.plot(
-                [math.radians(-x) for x in self.intensities],
-                self.dist[:, 180],
-                "r",
-                linewidth=2,
-            )
-        elif angles == "90-270":
-            ax.plot(
-                [math.radians(-x) for x in self.intensities],
-                self.dist[:, 90],
-                "b--",
-                linewidth=2,
-                label="C90-270",
-            )
-            ax.plot(
-                [math.radians(x) for x in self.intensities],
-                self.dist[:, 270],
-                "b--",
-                linewidth=2,
-            )
+        ax.plot(
+            [math.radians(x) for x in self.intensities],
+            self.dist[:, 0],
+            "r",
+            linewidth=2,
+            label="C0-180",
+        )
+        ax.plot(
+            [math.radians(-x) for x in self.intensities],
+            self.dist[:, 180],
+            "r",
+            linewidth=2,
+        )
+        ax.plot(
+            [math.radians(-x) for x in self.intensities],
+            self.dist[:, 90],
+            "b--",
+            linewidth=2,
+            label="C90-270",
+        )
+        ax.plot(
+            [math.radians(x) for x in self.intensities],
+            self.dist[:, 270],
+            "b--",
+            linewidth=2,
+        )
         ax.set_theta_zero_location("S")
         ax.set_theta_direction(1)
         ax.set_rmax(self.dist.max() * 1.1)
@@ -385,9 +376,7 @@ class LDT:
         thetaticks = np.arange(0, 360, 30)
         ax.set_thetagrids(thetaticks, tlt)
         ax.legend(loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.2))
-        fig.suptitle(
-            f"{self.manufacturer}\n{self.model}\n{self.filename}", y=1.12, fontsize=13
-        )
+        fig.suptitle(f"{self.manufacturer}\n{self.model}\n{self.filename}", y=1.12, fontsize=13)
 
     def save_plot(self) -> None:  # pragma: no cover
         try:
