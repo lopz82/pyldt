@@ -2,6 +2,7 @@
 name = "pyldt"
 version = "0.1.0"
 homepage = "https://github.com/lopz82/pyldt"
+description = "PyLDT is a small library that helps you to work with photometric LDT files."
 authors = ["Jorge López Guzmán"]
 license = "MIT License"
 classifiers = [
