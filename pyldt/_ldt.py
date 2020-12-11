@@ -378,11 +378,11 @@ class LDT:
         ax.legend(loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.2))
         fig.suptitle(f"{self.manufacturer}\n{self.model}\n{self.filename}", y=1.12, fontsize=13)
 
-    def save_plot(self) -> None:  # pragma: no cover
+    def save_plot(self, image_format: Optional[str] = "jpg") -> None:  # pragma: no cover
         try:
             import matplotlib.pyplot as plt
         except ImportError:
             raise ImportError("To use this feature you must install matplotlib")
 
         self.plot()
-        plt.savefig(self.filename)
+        plt.savefig(f"{self.filename.rsplit('.', 1)[0]}.{image_format}")
